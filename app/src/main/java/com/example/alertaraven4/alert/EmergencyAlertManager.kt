@@ -206,42 +206,54 @@ class EmergencyAlertManager(
      */
     private suspend fun sendEmergencyNotifications(alert: EmergencyAlert): Boolean {
         val contacts = _emergencyContacts.value.filter { it.isActive }
-        
+
         if (contacts.isEmpty()) {
             Log.w(TAG, "No hay contactos de emergencia configurados")
             return false
         }
-        
+
         val message = buildEmergencyMessage(alert)
         var successCount = 0
-        
+        var callsMade = 0
+
         for (contact in contacts) {
             try {
+                // Enviar SMS automáticamente a todos los contactos
                 if (_alertSettings.value.sendSMS) {
                     val smsSuccess = sendSMS(contact.phoneNumber, message)
-                    if (smsSuccess) successCount++
-                }
-                
-                // Realizar llamada automática si está habilitado
-                if (_alertSettings.value.makeCall) {
-                    val callSuccess = makeEmergencyCall(contact.phoneNumber)
-                    if (callSuccess) {
-                        Log.i(TAG, "Llamada automática iniciada a ${contact.name}")
-                        // Solo hacer una llamada al primer contacto para evitar múltiples llamadas simultáneas
-                        break
+                    if (smsSuccess) {
+                        successCount++
+                        Log.i(TAG, "SMS enviado a ${contact.name}")
                     }
                 }
-                
-                // Pequeña pausa entre envíos
-                delay(500)
-                
+
+                // Realizar llamadas automáticas a todos los contactos si está habilitado
+                if (_alertSettings.value.makeCall) {
+                    // Pequeña pausa antes de llamar para dar tiempo al SMS
+                    delay(2000)
+
+                    val callSuccess = makeEmergencyCall(contact.phoneNumber)
+                    if (callSuccess) {
+                        callsMade++
+                        Log.i(TAG, "Llamada automática ${callsMade} iniciada a ${contact.name}")
+
+                        // Esperar 5 segundos antes de la siguiente llamada para evitar conflictos
+                        delay(5000)
+                    }
+                }
+
+                // Pequeña pausa entre contactos si no se hicieron llamadas
+                if (!_alertSettings.value.makeCall) {
+                    delay(500)
+                }
+
             } catch (e: Exception) {
                 Log.e(TAG, "Error enviando alerta a ${contact.name}", e)
             }
         }
-        
-        Log.i(TAG, "Alertas enviadas: $successCount de ${contacts.size}")
-        return successCount > 0
+
+        Log.i(TAG, "Alertas enviadas: $successCount SMS y $callsMade llamadas de ${contacts.size} contactos")
+        return successCount > 0 || callsMade > 0
     }
     
     /**
