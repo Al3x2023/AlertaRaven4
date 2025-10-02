@@ -13,6 +13,11 @@ data class EmergencyContact(
 )
 
 /**
+ * Alias para compatibilidad con la API
+ */
+typealias EmergencyContactData = EmergencyContact
+
+/**
  * Información médica del usuario
  */
 data class MedicalProfile(

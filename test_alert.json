@@ -1,0 +1,36 @@
+{
+  "device_id": "test-device-001",
+  "user_id": "test-user-001",
+  "accident_event": {
+    "timestamp": 1696118400000,
+    "accident_type": "COLLISION",
+    "confidence": 0.85,
+    "acceleration_magnitude": 15.5,
+    "gyroscope_magnitude": 8.2
+  },
+  "location": {
+    "latitude": 19.4326,
+    "longitude": -99.1332,
+    "accuracy": 10.0,
+    "altitude": 2240.0,
+    "speed": 0.0,
+    "bearing": 0.0,
+    "timestamp": 1696118400000
+  },
+  "medical_info": {
+    "full_name": "Usuario de Prueba",
+    "blood_type": "O+",
+    "allergies": ["Penicilina"],
+    "medical_conditions": ["Diabetes"],
+    "emergency_medical_info": "Información médica de emergencia"
+  },
+  "emergency_contacts": [
+    {
+      "name": "Contacto de Emergencia",
+      "phone_number": "+525512345678",
+      "relationship": "Familiar",
+      "is_active": true
+    }
+  ],
+  "api_key": "test-api-key-12345"
+}
