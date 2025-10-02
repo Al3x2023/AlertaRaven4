@@ -13,11 +13,6 @@ data class EmergencyContact(
 )
 
 /**
- * Alias para compatibilidad con la API
- */
-typealias EmergencyContactData = EmergencyContact
-
-/**
  * Información médica del usuario
  */
 data class MedicalProfile(
@@ -61,7 +56,7 @@ data class AlertSettings(
     val isEnabled: Boolean = true,
     val cancelTimeoutSeconds: Int = 15, // Tiempo para cancelar alerta
     val sendSMS: Boolean = true,
-    val makeCall: Boolean = true, // Llamar automáticamente a todos los contactos
+    val makeCall: Boolean = false, // Llamar automáticamente
     val sendLocation: Boolean = true,
     val includeMedicalInfo: Boolean = true,
     val alertSound: Boolean = true,

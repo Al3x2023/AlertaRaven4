@@ -20,12 +20,9 @@ import androidx.core.content.ContextCompat
 import com.example.alertaraven4.R
 import com.example.alertaraven4.data.*
 import com.example.alertaraven4.location.LocationManager
-import com.example.alertaraven4.api.AlertApiService
-import com.example.alertaraven4.api.AlertSendResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -47,9 +44,6 @@ class EmergencyAlertManager(
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val vibrator = ContextCompat.getSystemService(context, Vibrator::class.java)
     
-    // Servicio de API para enviar alertas al servidor
-    private val apiService = AlertApiService(context)
-    
     // Referencia al ringtone para poder detenerlo
     private var currentRingtone: android.media.Ringtone? = null
     
@@ -70,7 +64,6 @@ class EmergencyAlertManager(
     
     init {
         createNotificationChannel()
-        setupApiMonitoring()
     }
     
     /**
@@ -181,12 +174,7 @@ class EmergencyAlertManager(
         // Actualizar estado
         _currentAlert.value = currentAlert.copy(status = AlertStatus.CONFIRMED)
         
-        // Enviar alerta a la API (sin bloquear el flujo principal)
-        coroutineScope.launch {
-            sendAlertToApi(currentAlert)
-        }
-        
-        // Enviar alertas a contactos (funcionalidad original)
+        // Enviar alertas a contactos
         val success = sendEmergencyNotifications(currentAlert)
         
         // Actualizar estado final
@@ -206,54 +194,42 @@ class EmergencyAlertManager(
      */
     private suspend fun sendEmergencyNotifications(alert: EmergencyAlert): Boolean {
         val contacts = _emergencyContacts.value.filter { it.isActive }
-
+        
         if (contacts.isEmpty()) {
             Log.w(TAG, "No hay contactos de emergencia configurados")
             return false
         }
-
+        
         val message = buildEmergencyMessage(alert)
         var successCount = 0
-        var callsMade = 0
-
+        
         for (contact in contacts) {
             try {
-                // Enviar SMS automáticamente a todos los contactos
                 if (_alertSettings.value.sendSMS) {
                     val smsSuccess = sendSMS(contact.phoneNumber, message)
-                    if (smsSuccess) {
-                        successCount++
-                        Log.i(TAG, "SMS enviado a ${contact.name}")
-                    }
+                    if (smsSuccess) successCount++
                 }
-
-                // Realizar llamadas automáticas a todos los contactos si está habilitado
+                
+                // Realizar llamada automática si está habilitado
                 if (_alertSettings.value.makeCall) {
-                    // Pequeña pausa antes de llamar para dar tiempo al SMS
-                    delay(2000)
-
                     val callSuccess = makeEmergencyCall(contact.phoneNumber)
                     if (callSuccess) {
-                        callsMade++
-                        Log.i(TAG, "Llamada automática ${callsMade} iniciada a ${contact.name}")
-
-                        // Esperar 5 segundos antes de la siguiente llamada para evitar conflictos
-                        delay(5000)
+                        Log.i(TAG, "Llamada automática iniciada a ${contact.name}")
+                        // Solo hacer una llamada al primer contacto para evitar múltiples llamadas simultáneas
+                        break
                     }
                 }
-
-                // Pequeña pausa entre contactos si no se hicieron llamadas
-                if (!_alertSettings.value.makeCall) {
-                    delay(500)
-                }
-
+                
+                // Pequeña pausa entre envíos
+                delay(500)
+                
             } catch (e: Exception) {
                 Log.e(TAG, "Error enviando alerta a ${contact.name}", e)
             }
         }
-
-        Log.i(TAG, "Alertas enviadas: $successCount SMS y $callsMade llamadas de ${contacts.size} contactos")
-        return successCount > 0 || callsMade > 0
+        
+        Log.i(TAG, "Alertas enviadas: $successCount de ${contacts.size}")
+        return successCount > 0
     }
     
     /**
@@ -564,71 +540,7 @@ class EmergencyAlertManager(
     fun cleanup() {
         cancelTimerJob?.cancel()
         stopAlertSound()
-        apiService.cleanup()
         coroutineScope.cancel()
+        notificationManager.cancelAll()
     }
-    
-    /**
-     * Configura el monitoreo de resultados de la API
-     */
-    private fun setupApiMonitoring() {
-        coroutineScope.launch {
-            apiService.alertResults.collect { result ->
-                when (result) {
-                    is AlertSendResult.Success -> {
-                        Log.i(TAG, "Alerta enviada exitosamente a la API: ${result.response.alertId}")
-                    }
-                    is AlertSendResult.Error -> {
-                        Log.w(TAG, "Error enviando alerta a la API: ${result.message}")
-                    }
-                    is AlertSendResult.ValidationError -> {
-                        Log.e(TAG, "Error de validación enviando alerta a la API: ${result.errors}")
-                    }
-                }
-            }
-        }
-    }
-    
-    /**
-     * Envía la alerta a la API
-     */
-    private suspend fun sendAlertToApi(alert: EmergencyAlert) {
-        try {
-            Log.d(TAG, "Enviando alerta a la API...")
-            
-            val result = apiService.sendEmergencyAlert(
-                accidentEvent = alert.accidentEvent,
-                location = alert.location,
-                medicalProfile = alert.medicalInfo,
-                emergencyContacts = _emergencyContacts.value
-            )
-            
-            when (result) {
-                is AlertSendResult.Success -> {
-                    Log.i(TAG, "Alerta enviada exitosamente a la API: ${result.response.alertId}")
-                }
-                is AlertSendResult.Error -> {
-                    Log.w(TAG, "Error enviando alerta a la API: ${result.message}")
-                }
-                is AlertSendResult.ValidationError -> {
-                    Log.e(TAG, "Error de validación: ${result.errors.joinToString(", ")}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Excepción enviando alerta a la API", e)
-        }
-    }
-    
-    /**
-     * Configura la URL base de la API
-     */
-    fun setApiBaseUrl(url: String) {
-        apiService.setApiBaseUrl(url)
-        Log.i(TAG, "URL de API configurada: $url")
-    }
-    
-    /**
-      * Obtiene estadísticas del servicio de API
-      */
-     fun getApiServiceStats() = apiService.getServiceStats()
 }

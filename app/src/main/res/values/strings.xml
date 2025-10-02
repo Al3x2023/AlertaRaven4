@@ -1,4 +1,3 @@
 <resources>
-    <string name="app_name">Alerta Raven</string>
-    <string name="app_description">Sistema de detección automática de accidentes vehiculares con alertas de emergencia</string>
+    <string name="app_name">AlertaRaven4</string>
 </resources>
