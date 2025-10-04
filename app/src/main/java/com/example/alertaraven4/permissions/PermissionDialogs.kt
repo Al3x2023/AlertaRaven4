@@ -38,7 +38,56 @@ object PermissionDialogs {
             .setCancelable(false)
             .show()
     }
-    
+
+    /**
+     * Muestra un diálogo explicando el permiso de superposición
+     */
+    fun showOverlayPermissionDialog(
+        context: Context,
+        onGoToSettings: () -> Unit,
+        onSkip: () -> Unit
+    ) {
+        AlertDialog.Builder(context)
+            .setTitle("Mostrar sobre otras apps")
+            .setMessage(
+                """
+                Para mostrar ventanas de alerta encima de otras aplicaciones, AlertaRaven necesita el permiso de superposición.
+
+                Esto permite:
+                • Mostrar recordatorios o controles rápidos durante el monitoreo
+                • Mantenerte informado sin cambiar de app
+
+                Te llevaremos a la configuración para habilitarlo.
+                """.trimIndent()
+            )
+            .setPositiveButton("Ir a Configuración") { _, _ -> onGoToSettings() }
+            .setNegativeButton("Ahora no") { _, _ -> onSkip() }
+            .setCancelable(false)
+            .show()
+    }
+
+    /**
+     * Muestra un diálogo explicando desactivar optimización de batería
+     */
+    fun showBatteryOptimizationDialog(
+        context: Context,
+        onGoToSettings: () -> Unit,
+        onSkip: () -> Unit
+    ) {
+        AlertDialog.Builder(context)
+            .setTitle("Optimización de batería")
+            .setMessage(
+                """
+                Para que AlertaRaven no se pause al estar en segundo plano, recomendamos desactivar la optimización de batería para la app.
+
+                Esto ayuda a que el monitoreo y las alertas funcionen continuamente.
+                """.trimIndent()
+            )
+            .setPositiveButton("Desactivar") { _, _ -> onGoToSettings() }
+            .setNegativeButton("Mantener activada") { _, _ -> onSkip() }
+            .setCancelable(false)
+            .show()
+    }
     /**
      * Muestra un diálogo cuando algunos permisos fueron denegados
      */

@@ -193,6 +193,30 @@ class PermissionManager(
         }
         settingsLauncher.launch(intent)
     }
+
+    /**
+     * Verifica si el permiso de superposición (mostrar sobre otras apps) está concedido
+     */
+    fun hasOverlayPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(activity)
+        } else {
+            true
+        }
+    }
+
+    /**
+     * Genera el Intent para solicitar el permiso de superposición
+     */
+    fun requestOverlayPermission(): Intent? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !hasOverlayPermission()) {
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                data = Uri.parse("package:${activity.packageName}")
+            }
+        } else {
+            null
+        }
+    }
     
     /**
      * Verifica si se debe mostrar una explicación para un permiso

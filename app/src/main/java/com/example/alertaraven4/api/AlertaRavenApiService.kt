@@ -51,6 +51,31 @@ interface AlertaRavenApiService {
      */
     @GET("/")
     suspend fun getApiInfo(): Response<ApiInfoResponse>
+
+    /**
+     * Endpoints de sincronización de contactos
+     */
+    @GET("api/v1/contacts/{device_id}")
+    suspend fun getContacts(
+        @Path("device_id") deviceId: String,
+        @Header("Authorization") authorization: String
+    ): Response<List<EmergencyContact>>
+
+    @PUT("api/v1/contacts/{device_id}")
+    suspend fun setContacts(
+        @Path("device_id") deviceId: String,
+        @Body contacts: List<EmergencyContact>,
+        @Header("Authorization") authorization: String
+    ): Response<List<EmergencyContact>>
+
+    /**
+     * Ingesta de eventos de sensores para entrenamiento
+     */
+    @POST("api/v1/sensor-events")
+    suspend fun sendSensorEvent(
+        @Body request: SensorEventRequest,
+        @Header("Authorization") authorization: String
+    ): Response<SensorEventResponse>
 }
 
 /**

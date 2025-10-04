@@ -12,6 +12,7 @@ import com.example.alertaraven4.data.AccidentThresholds
 import com.example.alertaraven4.data.AccidentType
 import com.example.alertaraven4.data.SensorData
 import com.example.alertaraven4.ml.AccidentMLPredictor
+import com.example.alertaraven4.ml.HybridAccidentPredictor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,11 @@ class AccidentDetector(
     companion object {
         private const val TAG = "AccidentDetector"
         private const val GRAVITY = 9.81f
+        // Aumentar throttle para reducir tráfico y estrechar rango intermedio
+        private const val REMOTE_QUERY_THROTTLE_MS = 10000L
+        private const val REMOTE_EPISODE_COOLDOWN_MS = 15000L
+        private const val INTERMEDIATE_CONF_MIN = 0.45f
+        private const val INTERMEDIATE_CONF_MAX = 0.70f
     }
 
     private val sensorManager: SensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -63,6 +69,12 @@ class AccidentDetector(
     
     // Sistema de Machine Learning
     private val mlPredictor = AccidentMLPredictor()
+    private val hybridPredictor = HybridAccidentPredictor(context)
+
+    // Control de frecuencia para consultas al modelo remoto
+    private var lastRemoteQueryAt: Long = 0L
+    private var lastRemoteCandidateType: AccidentType? = null
+    private var lastRemoteCandidateAt: Long = 0L
     
     // Estado del detector
     private val _isMonitoring = MutableStateFlow(false)
@@ -394,7 +406,7 @@ class AccidentDetector(
     /**
      * Calcula confianza mejorada basada en múltiples factores incluyendo ML
      */
-    private fun calculateEnhancedConfidence(
+    private suspend fun calculateEnhancedConfidence(
         currentData: SensorData,
         type: AccidentType,
         recentData: List<SensorData>
@@ -429,8 +441,42 @@ class AccidentDetector(
         traditionalConfidence += (patternFactor * 0.1f)
         
         // Combinar ML y método tradicional
-        val finalConfidence = (mlConfidence * 0.5f) + (traditionalConfidence * 0.5f)
-        
+        var finalConfidence = (mlConfidence * 0.5f) + (traditionalConfidence * 0.5f)
+
+        // Consultar remoto solo si la confianza local está en rango intermedio y respetando throttle
+        val now = System.currentTimeMillis()
+        val isIntermediate = mlConfidence in INTERMEDIATE_CONF_MIN..INTERMEDIATE_CONF_MAX
+        val canQuery = (now - lastRemoteQueryAt) >= REMOTE_QUERY_THROTTLE_MS
+        val isNewEpisode = (type != lastRemoteCandidateType) || ((now - lastRemoteCandidateAt) >= REMOTE_EPISODE_COOLDOWN_MS)
+        val strongCandidate = patternMatches >= 2
+
+        if (isIntermediate && canQuery && isNewEpisode && strongCandidate) {
+            try {
+                val remoteType = hybridPredictor.getRemoteType(currentData, recentData)
+                lastRemoteQueryAt = now
+                lastRemoteCandidateType = type
+                lastRemoteCandidateAt = now
+                remoteType?.let { rType ->
+                    if (rType == type) {
+                        finalConfidence += 0.2f
+                        Log.d(TAG, "Remoto coincide con $type, confianza reforzada")
+                    } else if (rType != AccidentType.UNKNOWN) {
+                        finalConfidence -= 0.1f
+                        Log.d(TAG, "Remoto discrepa ($rType vs $type), confianza ajustada")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo obtener etiqueta remota: ${e.message}")
+            }
+        } else {
+            when {
+                !isIntermediate -> Log.d(TAG, "Omito consulta remota: confianza local fuera de rango ($mlConfidence)")
+                !canQuery -> Log.d(TAG, "Omito consulta remota por throttle (${now - lastRemoteQueryAt}ms < ${REMOTE_QUERY_THROTTLE_MS}ms)")
+                !isNewEpisode -> Log.d(TAG, "Omito consulta remota: mismo episodio para $type dentro de cooldown")
+                !strongCandidate -> Log.d(TAG, "Omito consulta remota: candidato débil (patrones=$patternMatches)")
+            }
+        }
+
         return finalConfidence.coerceIn(0f, 1f)
     }
     
@@ -459,6 +505,13 @@ class AccidentDetector(
         }
         
         return matches
+    }
+
+    /**
+     * Devuelve una copia de los datos recientes de sensores para muestreo/entrenamiento.
+     */
+    fun getRecentSensorData(limit: Int = 50): List<SensorData> {
+        return sensorDataQueue.toList().takeLast(limit)
     }
     
     /**

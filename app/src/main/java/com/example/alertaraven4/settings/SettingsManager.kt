@@ -24,6 +24,7 @@ class SettingsManager(context: Context) {
         private const val KEY_MONITORING_DELAY = "monitoring_delay"
         private const val KEY_REQUIRE_CONFIRMATION = "require_confirmation"
         private const val KEY_AUTO_CALL_ENABLED = "auto_call_enabled"
+        private const val KEY_REPORT_TRAINING_DATA = "report_training_data_enabled"
         
         // Valores por defecto
         const val DEFAULT_DETECTION_SENSITIVITY = "Media"
@@ -35,6 +36,7 @@ class SettingsManager(context: Context) {
         const val DEFAULT_MONITORING_DELAY = 3 // segundos
         const val DEFAULT_REQUIRE_CONFIRMATION = true
         const val DEFAULT_AUTO_CALL_ENABLED = false // Deshabilitado por defecto por seguridad
+        const val DEFAULT_REPORT_TRAINING_DATA = false
     }
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -66,6 +68,9 @@ class SettingsManager(context: Context) {
     
     private val _autoCallEnabled = MutableStateFlow(isAutoCallEnabled())
     val autoCallEnabled: StateFlow<Boolean> = _autoCallEnabled.asStateFlow()
+
+    private val _reportTrainingDataEnabled = MutableStateFlow(isReportTrainingDataEnabled())
+    val reportTrainingDataEnabled: StateFlow<Boolean> = _reportTrainingDataEnabled.asStateFlow()
     
     // Getters
     fun getDetectionSensitivity(): String = prefs.getString(KEY_DETECTION_SENSITIVITY, DEFAULT_DETECTION_SENSITIVITY) ?: DEFAULT_DETECTION_SENSITIVITY
@@ -85,6 +90,8 @@ class SettingsManager(context: Context) {
     fun isConfirmationRequired(): Boolean = prefs.getBoolean(KEY_REQUIRE_CONFIRMATION, DEFAULT_REQUIRE_CONFIRMATION)
     
     fun isAutoCallEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_CALL_ENABLED, DEFAULT_AUTO_CALL_ENABLED)
+
+    fun isReportTrainingDataEnabled(): Boolean = prefs.getBoolean(KEY_REPORT_TRAINING_DATA, DEFAULT_REPORT_TRAINING_DATA)
     
     // Setters
     fun setDetectionSensitivity(sensitivity: String) {
@@ -131,6 +138,11 @@ class SettingsManager(context: Context) {
         prefs.edit().putBoolean(KEY_AUTO_CALL_ENABLED, enabled).apply()
         _autoCallEnabled.value = enabled
     }
+
+    fun setReportTrainingDataEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_REPORT_TRAINING_DATA, enabled).apply()
+        _reportTrainingDataEnabled.value = enabled
+    }
     
     /**
      * Obtiene la configuración de sensibilidad como valor numérico
@@ -173,5 +185,6 @@ class SettingsManager(context: Context) {
         _monitoringDelay.value = DEFAULT_MONITORING_DELAY
         _requireConfirmation.value = DEFAULT_REQUIRE_CONFIRMATION
         _autoCallEnabled.value = DEFAULT_AUTO_CALL_ENABLED
+        _reportTrainingDataEnabled.value = DEFAULT_REPORT_TRAINING_DATA
     }
 }

@@ -1,5 +1,7 @@
 package com.example.alertaraven4.ui.screens
 
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import com.example.alertaraven4.utils.BatteryOptimizer
 import com.example.alertaraven4.settings.SettingsManager
@@ -26,7 +29,9 @@ import com.example.alertaraven4.settings.SettingsManager
 fun SettingsScreen(
     navController: NavHostController,
     batteryOptimizer: BatteryOptimizer,
-    settingsManager: SettingsManager
+    settingsManager: SettingsManager,
+    onDisableOptimization: () -> Unit,
+    onRequestOverlay: () -> Unit
 ) {
     val batteryLevel by batteryOptimizer.batteryLevel.collectAsState()
     val powerSaveMode by batteryOptimizer.powerSaveMode.collectAsState()
@@ -47,6 +52,7 @@ fun SettingsScreen(
     val monitoringDelay by settingsManager.monitoringDelay.collectAsState()
     val requireConfirmation by settingsManager.requireConfirmation.collectAsState()
     val autoCallEnabled by settingsManager.autoCallEnabled.collectAsState()
+    val reportTrainingDataEnabled by settingsManager.reportTrainingDataEnabled.collectAsState()
     
     Scaffold(
         topBar = {
@@ -99,15 +105,23 @@ fun SettingsScreen(
                         onClick = { showDelayDialog = true }
                     )
                     
-                    SettingsToggleItem(
-                        icon = Icons.Default.CheckCircle,
-                        title = "Confirmación Requerida",
-                        subtitle = "Mostrar diálogo antes de iniciar",
-                        checked = requireConfirmation,
-                        onCheckedChange = { settingsManager.setRequireConfirmation(it) }
-                    )
-                }
+                SettingsToggleItem(
+                    icon = Icons.Default.CheckCircle,
+                    title = "Confirmación Requerida",
+                    subtitle = "Mostrar diálogo antes de iniciar",
+                    checked = requireConfirmation,
+                    onCheckedChange = { settingsManager.setRequireConfirmation(it) }
+                )
+
+                SettingsToggleItem(
+                    icon = Icons.Default.Tune,
+                    title = "Enviar datos de entrenamiento",
+                    subtitle = "Remitir predicciones y métricas para mejorar el modelo",
+                    checked = reportTrainingDataEnabled,
+                    onCheckedChange = { settingsManager.setReportTrainingDataEnabled(it) }
+                )
             }
+        }
             
             // Sección de Alertas
             item {
@@ -164,11 +178,32 @@ fun SettingsScreen(
                          batteryLevel = batteryLevel,
                          isLowPowerMode = powerSaveMode != BatteryOptimizer.PowerSaveMode.NORMAL,
                          isOptimizationDisabled = isOptimizationDisabled,
-                         onDisableOptimization = { 
-                             val intent = batteryOptimizer.requestDisableBatteryOptimization()
-                             // En una implementación real, se lanzaría el intent
-                         }
+                         onDisableOptimization = onDisableOptimization
                      )
+                }
+            }
+
+            // Sección de Permisos Especiales
+            item {
+                SettingsSection(title = "Permisos Especiales") {
+                    val context = LocalContext.current
+                    val overlayEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        Settings.canDrawOverlays(context)
+                    } else true
+
+                    SettingsItem(
+                        icon = Icons.Default.Security,
+                        title = "Mostrar sobre otras apps",
+                        subtitle = if (overlayEnabled) "Permiso concedido" else "Permiso requerido",
+                        onClick = { onRequestOverlay() }
+                    )
+
+                    SettingsItem(
+                        icon = Icons.Default.BatteryAlert,
+                        title = "Ignorar optimización de batería",
+                        subtitle = if (isOptimizationDisabled) "Optimización ignorada" else "Optimización activa (recomendado desactivar)",
+                        onClick = { onDisableOptimization() }
+                    )
                 }
             }
             

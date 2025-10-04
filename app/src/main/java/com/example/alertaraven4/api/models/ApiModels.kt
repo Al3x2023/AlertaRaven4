@@ -167,3 +167,53 @@ enum class ApiConnectionStatus {
     CONNECTING,
     ERROR
 }
+
+// ================================
+// Modelos para eventos de sensores
+// ================================
+
+data class SensorEventRequest(
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("label")
+    val label: String? = null,
+
+    @SerializedName("predicted_label")
+    val predictedLabel: String? = null,
+
+    @SerializedName("prediction_confidence")
+    val predictionConfidence: Double? = null,
+
+    @SerializedName("acceleration_magnitude")
+    val accelerationMagnitude: Double,
+
+    @SerializedName("gyroscope_magnitude")
+    val gyroscopeMagnitude: Double,
+
+    @SerializedName("accel_variance")
+    val accelVariance: Double? = null,
+
+    @SerializedName("gyro_variance")
+    val gyroVariance: Double? = null,
+
+    @SerializedName("accel_jerk")
+    val accelJerk: Double? = null,
+
+    @SerializedName("timestamp")
+    val timestamp: String? = null,
+
+    @SerializedName("raw_data")
+    val rawData: Map<String, Any>? = null
+)
+
+data class SensorEventResponse(
+    @SerializedName("ok")
+    val ok: Boolean,
+
+    @SerializedName("event_id")
+    val eventId: String? = null,
+
+    @SerializedName("label")
+    val label: String? = null
+)

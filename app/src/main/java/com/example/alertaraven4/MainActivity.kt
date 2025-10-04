@@ -77,6 +77,15 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Optimización de batería deshabilitada", Toast.LENGTH_SHORT).show()
         }
     }
+
+    // Launcher para solicitar permiso de superposición (mostrar sobre otras apps)
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (permissionManager.hasOverlayPermission()) {
+            Toast.makeText(this, "Permiso de superposición concedido", Toast.LENGTH_SHORT).show()
+        }
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -143,7 +152,9 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(
                             navController = navController,
                             settingsManager = settingsManager,
-                            batteryOptimizer = batteryOptimizer
+                            batteryOptimizer = batteryOptimizer,
+                            onDisableOptimization = ::requestBatteryOptimization,
+                            onRequestOverlay = ::requestOverlayPermission
                         )
                     }
                 }
@@ -233,6 +244,9 @@ class MainActivity : ComponentActivity() {
                 onContinue = {
                     // Continuar con la configuración normal
                     Toast.makeText(this, "¡AlertaRaven está listo para protegerte!", Toast.LENGTH_SHORT).show()
+
+                    // Solicitar permisos especiales recomendados (overlay y optimización de batería)
+                    promptSpecialPermissions()
                     
                     // Auto-iniciar monitoreo si está habilitado
                     lifecycleScope.launch {
@@ -280,6 +294,31 @@ class MainActivity : ComponentActivity() {
     private fun requestBatteryOptimization() {
         val intent = batteryOptimizer.requestDisableBatteryOptimization()
         intent?.let { batteryOptimizationLauncher.launch(it) }
+    }
+
+    private fun requestOverlayPermission() {
+        val intent = permissionManager.requestOverlayPermission()
+        intent?.let { overlayPermissionLauncher.launch(it) }
+    }
+
+    private fun promptSpecialPermissions() {
+        // Mostrar diálogo para permiso de superposición si no está concedido
+        if (!permissionManager.hasOverlayPermission()) {
+            PermissionDialogs.showOverlayPermissionDialog(
+                context = this,
+                onGoToSettings = { requestOverlayPermission() },
+                onSkip = { /* continuar sin overlay */ }
+            )
+        }
+
+        // Mostrar diálogo para desactivar optimización de batería si sigue activa
+        if (!batteryOptimizer.isBatteryOptimizationDisabled()) {
+            PermissionDialogs.showBatteryOptimizationDialog(
+                context = this,
+                onGoToSettings = { requestBatteryOptimization() },
+                onSkip = { /* continuar con optimización activa */ }
+            )
+        }
     }
     
     private fun toggleMonitoring() {
