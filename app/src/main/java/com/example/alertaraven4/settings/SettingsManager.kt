@@ -24,7 +24,7 @@ class SettingsManager(context: Context) {
         private const val KEY_MONITORING_DELAY = "monitoring_delay"
         private const val KEY_REQUIRE_CONFIRMATION = "require_confirmation"
         private const val KEY_AUTO_CALL_ENABLED = "auto_call_enabled"
-        private const val KEY_REPORT_TRAINING_DATA = "report_training_data_enabled"
+        private const val KEY_API_BASE_URL = "api_base_url"
         
         // Valores por defecto
         const val DEFAULT_DETECTION_SENSITIVITY = "Media"
@@ -36,7 +36,7 @@ class SettingsManager(context: Context) {
         const val DEFAULT_MONITORING_DELAY = 3 // segundos
         const val DEFAULT_REQUIRE_CONFIRMATION = true
         const val DEFAULT_AUTO_CALL_ENABLED = false // Deshabilitado por defecto por seguridad
-        const val DEFAULT_REPORT_TRAINING_DATA = false
+        const val DEFAULT_API_BASE_URL = "https://alertaraven.onrender.com/"
     }
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -69,8 +69,9 @@ class SettingsManager(context: Context) {
     private val _autoCallEnabled = MutableStateFlow(isAutoCallEnabled())
     val autoCallEnabled: StateFlow<Boolean> = _autoCallEnabled.asStateFlow()
 
-    private val _reportTrainingDataEnabled = MutableStateFlow(isReportTrainingDataEnabled())
-    val reportTrainingDataEnabled: StateFlow<Boolean> = _reportTrainingDataEnabled.asStateFlow()
+    // URL base de la API
+    private val _apiBaseUrl = MutableStateFlow(getApiBaseUrl())
+    val apiBaseUrl: StateFlow<String> = _apiBaseUrl.asStateFlow()
     
     // Getters
     fun getDetectionSensitivity(): String = prefs.getString(KEY_DETECTION_SENSITIVITY, DEFAULT_DETECTION_SENSITIVITY) ?: DEFAULT_DETECTION_SENSITIVITY
@@ -91,7 +92,7 @@ class SettingsManager(context: Context) {
     
     fun isAutoCallEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_CALL_ENABLED, DEFAULT_AUTO_CALL_ENABLED)
 
-    fun isReportTrainingDataEnabled(): Boolean = prefs.getBoolean(KEY_REPORT_TRAINING_DATA, DEFAULT_REPORT_TRAINING_DATA)
+    fun getApiBaseUrl(): String = prefs.getString(KEY_API_BASE_URL, DEFAULT_API_BASE_URL) ?: DEFAULT_API_BASE_URL
     
     // Setters
     fun setDetectionSensitivity(sensitivity: String) {
@@ -139,9 +140,10 @@ class SettingsManager(context: Context) {
         _autoCallEnabled.value = enabled
     }
 
-    fun setReportTrainingDataEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_REPORT_TRAINING_DATA, enabled).apply()
-        _reportTrainingDataEnabled.value = enabled
+    fun setApiBaseUrl(url: String) {
+        val normalized = if (url.endsWith("/")) url else "$url/"
+        prefs.edit().putString(KEY_API_BASE_URL, normalized).apply()
+        _apiBaseUrl.value = normalized
     }
     
     /**
@@ -185,6 +187,6 @@ class SettingsManager(context: Context) {
         _monitoringDelay.value = DEFAULT_MONITORING_DELAY
         _requireConfirmation.value = DEFAULT_REQUIRE_CONFIRMATION
         _autoCallEnabled.value = DEFAULT_AUTO_CALL_ENABLED
-        _reportTrainingDataEnabled.value = DEFAULT_REPORT_TRAINING_DATA
+        _apiBaseUrl.value = DEFAULT_API_BASE_URL
     }
 }

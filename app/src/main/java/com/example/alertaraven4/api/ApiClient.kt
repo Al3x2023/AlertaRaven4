@@ -22,7 +22,7 @@ class ApiClient private constructor() {
     
     companion object {
         private const val TAG = "ApiClient"
-        private const val DEFAULT_BASE_URL = "https://alertaraven.onrender.com/" // IP de la PC
+        private const val DEFAULT_BASE_URL = "https://alertaraven.onrender.com/" // URL base por defecto
         private const val API_KEY = "alertaraven_mobile_key_2024"
         private const val CONNECT_TIMEOUT = 30L
         private const val READ_TIMEOUT = 30L
@@ -106,6 +106,75 @@ class ApiClient private constructor() {
             }
         }
     }
+
+    /**
+     * Envía un evento de sensores (ventana de datos) a la API
+     */
+    suspend fun sendSensorEvent(request: SensorEventRequest): ApiResult<SensorEventResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Enviando evento de sensor: ${request.deviceId}")
+
+                val response = apiService.sendSensorEvent(
+                    request = request,
+                    authorization = "Bearer $API_KEY"
+                )
+
+                handleResponse(response)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error enviando evento de sensor", e)
+                ApiResult.NetworkError(e)
+            }
+        }
+    }
+
+    /**
+     * Lista eventos de sensores
+     */
+    suspend fun listSensorEvents(limit: Int = 50, offset: Int = 0): ApiResult<SensorEventsListResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Listando eventos de sensores")
+
+                val response = apiService.listSensorEvents(
+                    limit = limit,
+                    offset = offset,
+                    authorization = "Bearer $API_KEY"
+                )
+
+                handleResponse(response)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error listando eventos de sensores", e)
+                ApiResult.NetworkError(e)
+            }
+        }
+    }
+
+    /**
+     * Exporta eventos de sensores como CSV
+     */
+    suspend fun exportSensorEventsCsv(): ApiResult<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Exportando eventos de sensores (CSV)")
+
+                val response = apiService.exportSensorEventsCsv(
+                    authorization = "Bearer $API_KEY"
+                )
+
+                if (response.isSuccessful) {
+                    val csv = response.body()?.string() ?: ""
+                    ApiResult.Success(csv)
+                } else {
+                    Log.e(TAG, "Error exportando CSV: HTTP ${response.code()} - ${response.message()}")
+                    ApiResult.Error("HTTP ${response.code()}", response.code())
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error exportando eventos de sensores", e)
+                ApiResult.NetworkError(e)
+            }
+        }
+    }
     
     /**
      * Obtiene el estado de una alerta
@@ -156,6 +225,92 @@ class ApiClient private constructor() {
             }
         }
     }
+
+    /**
+     * Actualiza estado de alerta
+     */
+    suspend fun updateAlertStatus(alertId: String, status: String): ApiResult<AlertStatusResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Actualizando estado de alerta: $alertId -> $status")
+
+                val response = apiService.updateAlertStatus(
+                    alertId = alertId,
+                    request = UpdateAlertStatusRequest(status = status),
+                    authorization = "Bearer $API_KEY"
+                )
+
+                handleResponse(response)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error actualizando estado de alerta", e)
+                ApiResult.NetworkError(e)
+            }
+        }
+    }
+
+    /**
+     * Obtiene contactos del dispositivo
+     */
+    suspend fun getDeviceContacts(deviceId: String): ApiResult<DeviceContactsResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Obteniendo contactos del dispositivo: $deviceId")
+
+                val response = apiService.getDeviceContacts(
+                    deviceId = deviceId,
+                    authorization = "Bearer $API_KEY"
+                )
+
+                handleResponse(response)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error obteniendo contactos del dispositivo", e)
+                ApiResult.NetworkError(e)
+            }
+        }
+    }
+
+    /**
+     * Reemplaza contactos del dispositivo
+     */
+    suspend fun replaceDeviceContacts(deviceId: String, contacts: List<EmergencyContact>): ApiResult<DeviceContactsResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Reemplazando contactos del dispositivo: $deviceId")
+
+                val response = apiService.replaceDeviceContacts(
+                    deviceId = deviceId,
+                    contacts = contacts,
+                    authorization = "Bearer $API_KEY"
+                )
+
+                handleResponse(response)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error reemplazando contactos del dispositivo", e)
+                ApiResult.NetworkError(e)
+            }
+        }
+    }
+
+    /**
+     * Envía alerta en modo debug
+     */
+    suspend fun sendEmergencyAlertDebug(request: EmergencyAlertRequest): ApiResult<AlertResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Enviando alerta de emergencia (debug)")
+
+                val response = apiService.sendEmergencyAlertDebug(
+                    request = request,
+                    authorization = "Bearer $API_KEY"
+                )
+
+                handleResponse(response)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error enviando alerta de emergencia (debug)", e)
+                ApiResult.NetworkError(e)
+            }
+        }
+    }
     
     /**
      * Verifica la salud de la API
@@ -186,64 +341,6 @@ class ApiClient private constructor() {
                 handleResponse(response)
             } catch (e: Exception) {
                 Log.e(TAG, "Error obteniendo información de la API", e)
-                ApiResult.NetworkError(e)
-            }
-        }
-    }
-
-    /**
-     * Obtiene contactos de emergencia del backend
-     */
-    suspend fun getContacts(deviceId: String): ApiResult<List<EmergencyContact>> {
-        return withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Obteniendo contactos para dispositivo: $deviceId")
-                val response = apiService.getContacts(
-                    deviceId = deviceId,
-                    authorization = "Bearer $API_KEY"
-                )
-                handleResponse(response)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error obteniendo contactos", e)
-                ApiResult.NetworkError(e)
-            }
-        }
-    }
-
-    /**
-     * Establece (reemplaza) contactos de emergencia en el backend
-     */
-    suspend fun setContacts(deviceId: String, contacts: List<EmergencyContact>): ApiResult<List<EmergencyContact>> {
-        return withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Enviando contactos para dispositivo: $deviceId (count=${contacts.size})")
-                val response = apiService.setContacts(
-                    deviceId = deviceId,
-                    contacts = contacts,
-                    authorization = "Bearer $API_KEY"
-                )
-                handleResponse(response)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error estableciendo contactos", e)
-                ApiResult.NetworkError(e)
-            }
-        }
-    }
-
-    /**
-     * Envía un evento de sensores para entrenamiento
-     */
-    suspend fun sendSensorEvent(request: SensorEventRequest): ApiResult<SensorEventResponse> {
-        return withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Enviando sensor event: ${request.deviceId}")
-                val response = apiService.sendSensorEvent(
-                    request = request,
-                    authorization = "Bearer $API_KEY"
-                )
-                handleResponse(response)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error enviando sensor event", e)
                 ApiResult.NetworkError(e)
             }
         }
@@ -280,20 +377,8 @@ class ApiClient private constructor() {
                 ApiResult.Error("Respuesta vacía del servidor", response.code())
             }
         } else {
-            val errorMessage = try {
-                val errorBody = response.errorBody()?.string()
-                if (errorBody != null) {
-                    val apiError = gson.fromJson(errorBody, ApiError::class.java)
-                    apiError.detail
-                } else {
-                    "Error desconocido"
-                }
-            } catch (e: Exception) {
-                "Error parseando respuesta de error"
-            }
-            
-            Log.e(TAG, "Error en respuesta: ${response.code()} - $errorMessage")
-            ApiResult.Error(errorMessage, response.code())
+            Log.e(TAG, "Error en respuesta: HTTP ${response.code()} - ${response.message()}")
+            ApiResult.Error("HTTP ${response.code()}", response.code())
         }
     }
     

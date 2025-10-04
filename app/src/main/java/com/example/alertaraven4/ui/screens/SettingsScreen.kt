@@ -23,6 +23,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import com.example.alertaraven4.utils.BatteryOptimizer
 import com.example.alertaraven4.settings.SettingsManager
+import kotlinx.coroutines.launch
+import com.example.alertaraven4.repository.AlertRepository
+import com.example.alertaraven4.api.ApiClient
+import com.example.alertaraven4.api.models.ApiConnectionStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +37,8 @@ fun SettingsScreen(
     onDisableOptimization: () -> Unit,
     onRequestOverlay: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val batteryLevel by batteryOptimizer.batteryLevel.collectAsState()
     val powerSaveMode by batteryOptimizer.powerSaveMode.collectAsState()
     val isOptimizationDisabled = batteryOptimizer.isBatteryOptimizationDisabled()
@@ -51,8 +57,10 @@ fun SettingsScreen(
     val autoStartMonitoring by settingsManager.autoStartMonitoring.collectAsState()
     val monitoringDelay by settingsManager.monitoringDelay.collectAsState()
     val requireConfirmation by settingsManager.requireConfirmation.collectAsState()
+    val apiBaseUrl by settingsManager.apiBaseUrl.collectAsState()
+    var serverUrl by remember { mutableStateOf(apiBaseUrl) }
+    var connectivityStatus by remember { mutableStateOf<ApiConnectionStatus?>(null) }
     val autoCallEnabled by settingsManager.autoCallEnabled.collectAsState()
-    val reportTrainingDataEnabled by settingsManager.reportTrainingDataEnabled.collectAsState()
     
     Scaffold(
         topBar = {
@@ -105,23 +113,15 @@ fun SettingsScreen(
                         onClick = { showDelayDialog = true }
                     )
                     
-                SettingsToggleItem(
-                    icon = Icons.Default.CheckCircle,
-                    title = "Confirmación Requerida",
-                    subtitle = "Mostrar diálogo antes de iniciar",
-                    checked = requireConfirmation,
-                    onCheckedChange = { settingsManager.setRequireConfirmation(it) }
-                )
-
-                SettingsToggleItem(
-                    icon = Icons.Default.Tune,
-                    title = "Enviar datos de entrenamiento",
-                    subtitle = "Remitir predicciones y métricas para mejorar el modelo",
-                    checked = reportTrainingDataEnabled,
-                    onCheckedChange = { settingsManager.setReportTrainingDataEnabled(it) }
-                )
+                    SettingsToggleItem(
+                        icon = Icons.Default.CheckCircle,
+                        title = "Confirmación Requerida",
+                        subtitle = "Mostrar diálogo antes de iniciar",
+                        checked = requireConfirmation,
+                        onCheckedChange = { settingsManager.setRequireConfirmation(it) }
+                    )
+                }
             }
-        }
             
             // Sección de Alertas
             item {
@@ -180,6 +180,49 @@ fun SettingsScreen(
                          isOptimizationDisabled = isOptimizationDisabled,
                          onDisableOptimization = onDisableOptimization
                      )
+                }
+            }
+
+            // Sección de Servidor API
+            item {
+                SettingsSection(title = "Servidor API") {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = serverUrl,
+                        onValueChange = { serverUrl = it },
+                        label = { Text("URL del servidor") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = {
+                            val normalized = if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"
+                            settingsManager.setApiBaseUrl(normalized)
+                            AlertRepository.getInstance(context).setApiBaseUrl(normalized)
+                            scope.launch {
+                                connectivityStatus = ApiClient.getInstance().checkConnectivity()
+                            }
+                        }) {
+                            Text("Guardar y Probar")
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        val statusText = when (connectivityStatus) {
+                            ApiConnectionStatus.CONNECTED -> "Conectado"
+                            ApiConnectionStatus.DISCONNECTED -> "Desconectado"
+                            ApiConnectionStatus.ERROR -> "Error"
+                            ApiConnectionStatus.CONNECTING -> "Conectando..."
+                            null -> ""
+                        }
+                        val statusColor = when (connectivityStatus) {
+                            ApiConnectionStatus.CONNECTED -> Color(0xFF2E7D32)
+                            ApiConnectionStatus.ERROR -> Color(0xFFC62828)
+                            ApiConnectionStatus.DISCONNECTED -> Color(0xFFF57C00)
+                            ApiConnectionStatus.CONNECTING -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        if (statusText.isNotEmpty()) {
+                            Text(text = statusText, color = statusColor)
+                        }
+                    }
                 }
             }
 

@@ -19,10 +19,7 @@ import com.example.alertaraven4.data.MedicalProfile
 import com.example.alertaraven4.medical.MedicalProfileManager
 import com.example.alertaraven4.location.LocationManager
 import com.example.alertaraven4.sensors.AccidentDetector
-import com.example.alertaraven4.sensors.SensorEventReporter
-import com.example.alertaraven4.ml.HybridAccidentPredictor
 import com.example.alertaraven4.settings.SettingsManager
-import com.example.alertaraven4.sync.ContactSyncManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 
@@ -77,9 +74,6 @@ class AccidentMonitoringService : Service() {
     private lateinit var emergencyAlertManager: EmergencyAlertManager
     private lateinit var medicalProfileManager: MedicalProfileManager
     private lateinit var settingsManager: SettingsManager
-    private var contactSyncManager: ContactSyncManager? = null
-    private var sensorEventReporter: SensorEventReporter? = null
-    private lateinit var hybridPredictor: HybridAccidentPredictor
     
     private var wakeLock: PowerManager.WakeLock? = null
     // Optimizado: Usar Dispatchers.Default para mejor rendimiento en operaciones intensivas
@@ -117,11 +111,6 @@ class AccidentMonitoringService : Service() {
                 medicalProfileManager = MedicalProfileManager(this@AccidentMonitoringService)
                 settingsManager = SettingsManager(this@AccidentMonitoringService)
                 emergencyAlertManager = EmergencyAlertManager(this@AccidentMonitoringService, locationManager)
-                sensorEventReporter = SensorEventReporter(this@AccidentMonitoringService)
-                hybridPredictor = HybridAccidentPredictor(this@AccidentMonitoringService)
-                // Iniciar sincronización de contactos con backend
-                contactSyncManager = ContactSyncManager(this@AccidentMonitoringService, medicalProfileManager)
-                contactSyncManager?.start()
                 
                 // Configurar sincronización de datos entre MedicalProfileManager y EmergencyAlertManager
                 setupDataSynchronization()
@@ -216,13 +205,6 @@ class AccidentMonitoringService : Service() {
         } catch (e: Exception) {
             Log.w(TAG, "Error al limpiar emergency alert manager", e)
         }
-
-        try {
-            contactSyncManager?.stop()
-            contactSyncManager = null
-        } catch (e: Exception) {
-            Log.w(TAG, "Error al detener ContactSyncManager", e)
-        }
         
         // MedicalProfileManager no requiere limpieza explícita
     }
@@ -280,34 +262,8 @@ class AccidentMonitoringService : Service() {
                     location?.let { accidentDetector.updateLocation(it) }
                 }
             }
-
-            // Iniciar reporter de ventanas si el envío de entrenamiento está habilitado
-            try {
-                if (settingsManager.isReportTrainingDataEnabled()) {
-                    sensorEventReporter?.start()
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "No se pudo iniciar SensorEventReporter: ${e.message}")
-            }
-
-            // Observar cambios del ajuste para iniciar/detener reporter dinámicamente
-            serviceScope.launch {
-                settingsManager.reportTrainingDataEnabled.collect { enabled ->
-                    try {
-                        if (isMonitoring) {
-                            if (enabled) {
-                                sensorEventReporter?.start()
-                            } else {
-                                sensorEventReporter?.stop()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error gestionando SensorEventReporter por ajuste: ${e.message}")
-                    }
-                }
-            }
             
-            Log.i(TAG, "Monitoreo iniciado exitosamente (modo muestreo por eventos)")
+            Log.i(TAG, "Monitoreo iniciado exitosamente")
         } else {
             Log.e(TAG, "Error iniciando sensores")
             stopSelf()
@@ -329,11 +285,6 @@ class AccidentMonitoringService : Service() {
         // Detener componentes
         accidentDetector.stopMonitoring()
         locationManager.stopLocationUpdates()
-        try {
-            sensorEventReporter?.stop()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error al detener SensorEventReporter", e)
-        }
         
         // Liberar wake lock
         wakeLock?.let { wl ->
@@ -380,26 +331,6 @@ class AccidentMonitoringService : Service() {
                     // Actualizar notificación de forma optimizada
                     launch {
                         updateNotificationForAlertOptimized(event)
-                    }
-
-                    // Enviar muestra de entrenamiento solo en caso de evento
-                    launch {
-                        try {
-                            if (settingsManager.isReportTrainingDataEnabled()) {
-                                val recent = accidentDetector.getRecentSensorData(50)
-                                val current = recent.lastOrNull()
-                                if (current != null) {
-                                    // Usar mayúsculas para coincidir con el Enum del backend
-                                    val label = event.type.name
-                                    hybridPredictor.sendTrainingSampleLabelled(current, recent, label)
-                                    Log.d(TAG, "Muestra de entrenamiento enviada por evento ${event.type}")
-                                } else {
-                                    Log.d(TAG, "Sin datos recientes para enviar muestra de entrenamiento")
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error enviando muestra de entrenamiento: ${e.message}")
-                        }
                     }
                 }
             }

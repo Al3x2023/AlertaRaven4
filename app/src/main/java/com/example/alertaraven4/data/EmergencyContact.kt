@@ -76,7 +76,8 @@ data class EmergencyAlert(
     val contactsNotified: List<String> = emptyList(), // IDs de contactos notificados
     val cancelTimeRemaining: Int = 15, // Segundos restantes para cancelar
     val location: android.location.Location? = null,
-    val medicalInfo: MedicalProfile? = null
+    val medicalInfo: MedicalProfile? = null,
+    val apiAlertId: String? = null // ID de la alerta en la API
 )
 
 /**

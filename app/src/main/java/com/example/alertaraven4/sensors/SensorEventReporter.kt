@@ -163,10 +163,10 @@ class SensorEventReporter(private val context: Context) : SensorEventListener {
             is ApiResult.Success<SensorEventResponse> -> {
                 Log.d(TAG, "Sensor event enviado: ok=${result.data.ok}, id=${result.data.eventId}")
             }
-            is ApiResult.Error -> {
+            is ApiResult.Error<*> -> {
                 Log.w(TAG, "Error API enviando sensor event: ${result.message}")
             }
-            is ApiResult.NetworkError -> {
+            is ApiResult.NetworkError<*> -> {
                 Log.w(TAG, "Error de red enviando sensor event: ${result.exception.message}")
             }
         }

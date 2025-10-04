@@ -168,10 +168,9 @@ enum class ApiConnectionStatus {
     ERROR
 }
 
-// ================================
-// Modelos para eventos de sensores
-// ================================
-
+/**
+ * Modelos para eventos de sensores enviados a la API
+ */
 data class SensorEventRequest(
     @SerializedName("device_id")
     val deviceId: String,
@@ -182,9 +181,6 @@ data class SensorEventRequest(
     @SerializedName("predicted_label")
     val predictedLabel: String? = null,
 
-    @SerializedName("prediction_confidence")
-    val predictionConfidence: Double? = null,
-
     @SerializedName("acceleration_magnitude")
     val accelerationMagnitude: Double,
 
@@ -192,16 +188,16 @@ data class SensorEventRequest(
     val gyroscopeMagnitude: Double,
 
     @SerializedName("accel_variance")
-    val accelVariance: Double? = null,
+    val accelVariance: Double,
 
     @SerializedName("gyro_variance")
-    val gyroVariance: Double? = null,
+    val gyroVariance: Double,
 
     @SerializedName("accel_jerk")
-    val accelJerk: Double? = null,
+    val accelJerk: Double,
 
     @SerializedName("timestamp")
-    val timestamp: String? = null,
+    val timestamp: String,
 
     @SerializedName("raw_data")
     val rawData: Map<String, Any>? = null
@@ -212,8 +208,43 @@ data class SensorEventResponse(
     val ok: Boolean,
 
     @SerializedName("event_id")
-    val eventId: String? = null,
+    val eventId: String,
 
-    @SerializedName("label")
-    val label: String? = null
+    @SerializedName("message")
+    val message: String? = null
+)
+
+/**
+ * Modelos adicionales para endpoints extendidos
+ */
+data class UpdateAlertStatusRequest(
+    @SerializedName("status")
+    val status: String
+)
+
+data class DeviceContactsResponse(
+    @SerializedName("device_id")
+    val deviceId: String,
+
+    @SerializedName("contacts")
+    val contacts: List<EmergencyContact>
+)
+
+data class SensorEventItem(
+    @SerializedName("event_id")
+    val eventId: String,
+
+    @SerializedName("ok")
+    val ok: Boolean,
+
+    @SerializedName("message")
+    val message: String? = null
+)
+
+data class SensorEventsListResponse(
+    @SerializedName("events")
+    val events: List<SensorEventItem>,
+
+    @SerializedName("pagination")
+    val pagination: com.example.alertaraven4.api.PaginationInfo? = null
 )

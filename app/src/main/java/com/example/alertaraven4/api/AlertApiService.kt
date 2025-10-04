@@ -153,6 +153,56 @@ class AlertApiService(private val context: Context) {
     suspend fun getAlertStatus(alertId: String): ApiResult<AlertStatusResponse> {
         return apiClient.getAlertStatus(alertId)
     }
+
+    /**
+     * Actualiza el estado de una alerta
+     */
+    suspend fun updateAlertStatus(alertId: String, status: String): ApiResult<AlertStatusResponse> {
+        return apiClient.updateAlertStatus(alertId, status)
+    }
+
+    /**
+     * Obtiene la lista de alertas
+     */
+    suspend fun getAlerts(
+        limit: Int = 50,
+        offset: Int = 0,
+        deviceId: String? = null,
+        status: String? = null
+    ): ApiResult<AlertsListResponse> {
+        return apiClient.getAlerts(limit, offset, deviceId, status)
+    }
+
+    /**
+     * Lista eventos de sensores
+     */
+    suspend fun listSensorEvents(limit: Int = 50, offset: Int = 0): ApiResult<SensorEventsListResponse> {
+        return apiClient.listSensorEvents(limit, offset)
+    }
+
+    /**
+     * Exporta eventos de sensores (CSV)
+     */
+    suspend fun exportSensorEventsCsv(): ApiResult<String> {
+        return apiClient.exportSensorEventsCsv()
+    }
+
+    /**
+     * Obtiene contactos del dispositivo
+     */
+    suspend fun getDeviceContacts(deviceId: String): ApiResult<DeviceContactsResponse> {
+        return apiClient.getDeviceContacts(deviceId)
+    }
+
+    /**
+     * Reemplaza contactos del dispositivo
+     */
+    suspend fun replaceDeviceContacts(
+        deviceId: String,
+        contacts: List<com.example.alertaraven4.api.models.EmergencyContact>
+    ): ApiResult<DeviceContactsResponse> {
+        return apiClient.replaceDeviceContacts(deviceId, contacts)
+    }
     
     /**
      * Configura la URL base de la API

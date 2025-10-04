@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import com.example.alertaraven4.R
 import com.example.alertaraven4.data.*
 import com.example.alertaraven4.location.LocationManager
+import com.example.alertaraven4.repository.AlertRepository
+import com.example.alertaraven4.api.models.ApiResult
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,8 @@ class EmergencyAlertManager(
     private val context: Context,
     private val locationManager: LocationManager
 ) {
+
+    private val alertRepository = AlertRepository.getInstance(context)
     companion object {
         private const val TAG = "EmergencyAlertManager"
         private const val NOTIFICATION_CHANNEL_ID = "emergency_alerts"
@@ -47,8 +51,6 @@ class EmergencyAlertManager(
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val vibrator = ContextCompat.getSystemService(context, Vibrator::class.java)
 
-    // Servicio de API para enviar alertas al servidor
-    private val apiService = AlertApiService(context)
     // Referencia al ringtone para poder detenerlo
     private var currentRingtone: android.media.Ringtone? = null
 
@@ -84,6 +86,10 @@ class EmergencyAlertManager(
      * Inicia una alerta de emergencia
      */
     suspend fun triggerEmergencyAlert(accidentEvent: AccidentEvent) {
+        Log.i(TAG, "=== INICIANDO TRIGGER EMERGENCY ALERT ===")
+        Log.i(TAG, "Evento de accidente: ${accidentEvent.type}, confianza: ${accidentEvent.confidence}")
+        Log.i(TAG, "Estado actual de alerta: ${_currentAlert.value?.status}")
+
         if (_currentAlert.value?.status == AlertStatus.PENDING) {
             Log.w(TAG, "Ya hay una alerta pendiente")
             return
@@ -161,6 +167,28 @@ class EmergencyAlertManager(
         // Cancelar notificación
         notificationManager.cancel(NOTIFICATION_ID)
 
+        // Cancelar en la API si existe el ID
+        currentAlert.apiAlertId?.let { alertId ->
+            coroutineScope.launch {
+                try {
+                    val result = alertRepository.cancelAlert(alertId)
+                    when (result) {
+                        is ApiResult.Success -> {
+                            Log.i(TAG, "✅ Alerta cancelada exitosamente en la API")
+                        }
+                        is ApiResult.Error -> {
+                            Log.e(TAG, "❌ Error cancelando alerta en API: ${result.message}")
+                        }
+                        is ApiResult.NetworkError -> {
+                            Log.e(TAG, "❌ Error de red cancelando alerta en API: ${result.exception.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Excepción cancelando alerta en API", e)
+                }
+            }
+        }
+
         Log.i(TAG, "Alerta cancelada por el usuario")
 
         // Limpiar alerta después de un tiempo
@@ -191,13 +219,28 @@ class EmergencyAlertManager(
 
         // Actualizar estado
         _currentAlert.value = currentAlert.copy(status = AlertStatus.CONFIRMED)
-        
-        // Enviar alerta a la API (sin bloquear el flujo principal)
-        coroutineScope.launch {
-            sendAlertToApi(currentAlert)
+
+        // Confirmar en la API si existe el ID
+        currentAlert.apiAlertId?.let { alertId ->
+            try {
+                val result = alertRepository.updateAlertStatus(alertId, "confirmed")
+                when (result) {
+                    is ApiResult.Success -> {
+                        Log.i(TAG, "✅ Alerta confirmada exitosamente en la API")
+                    }
+                    is ApiResult.Error -> {
+                        Log.e(TAG, "❌ Error confirmando alerta en API: ${result.message}")
+                    }
+                    is ApiResult.NetworkError -> {
+                        Log.e(TAG, "❌ Error de red confirmando alerta en API: ${result.exception.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Excepción confirmando alerta en API", e)
+            }
         }
 
-        // Enviar alertas a contactos (funcionalidad original)
+        // Enviar alertas a contactos
         val success = sendEmergencyNotifications(currentAlert)
 
         // Actualizar estado final
@@ -227,10 +270,50 @@ class EmergencyAlertManager(
             Log.w(TAG, "❌ No hay contactos de emergencia configurados")
             return false
         }
-        
+
+        // Enviar alerta a la API primero
+        var apiSuccess = false
+        try {
+            Log.d(TAG, "Enviando alerta a la API...")
+            val emergencyContactsData = contacts.map { contact ->
+                EmergencyContactData(
+                    name = contact.name,
+                    phoneNumber = contact.phoneNumber,
+                    relationship = contact.relationship,
+                    isPrimary = contact.isPrimary,
+                    isActive = contact.isActive
+                )
+            }
+
+            val apiResult = alertRepository.sendEmergencyAlert(
+                accidentEvent = alert.accidentEvent,
+                location = alert.location,
+                medicalProfile = alert.medicalInfo,
+                emergencyContacts = emergencyContactsData
+            )
+
+            when (apiResult) {
+                is ApiResult.Success -> {
+                    apiSuccess = true
+                    Log.i(TAG, "✅ Alerta enviada exitosamente a la API: ${apiResult.data.alertId}")
+                    // Actualizar la alerta con el ID de la API
+                    _currentAlert.value = _currentAlert.value?.copy(
+                        apiAlertId = apiResult.data.alertId
+                    )
+                }
+                is ApiResult.Error -> {
+                    Log.e(TAG, "❌ Error de API: ${apiResult.message} (Código: ${apiResult.code})")
+                }
+                is ApiResult.NetworkError -> {
+                    Log.e(TAG, "❌ Error de red enviando a API: ${apiResult.exception.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Excepción enviando alerta a API", e)
+        }
+
         val message = buildEmergencyMessage(alert)
         var successCount = 0
-        
         var callSuccessCount = 0
 
         // Primero enviar todos los SMS
@@ -258,11 +341,11 @@ class EmergencyAlertManager(
                 // Pequeña pausa entre envíos de SMS
                 delay(500)
 
-
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error procesando contacto ${contact.name}", e)
             }
         }
+
         // Iniciar la cadena de llamadas si hay pendientes
         if (settings.makeCall && pendingCalls.isNotEmpty()) {
             Log.d(TAG, "Iniciando secuencia de llamadas a ${pendingCalls.size} contactos")
@@ -512,12 +595,12 @@ class EmergencyAlertManager(
         val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("⚠️ Accidente Detectado")
             .setContentText("Se enviará alerta en ${alert.cancelTimeRemaining}s. Toca para cancelar.")
-            .setSmallIcon(R.mipmap.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(false)
             .setOngoing(true)
-            .addAction(R.mipmap.ic_launcher_foreground, "CANCELAR", cancelPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "CANCELAR", cancelPendingIntent)
             .setSound(null) // No reproducir sonido desde la notificación, solo desde currentRingtone
             .build()
 
@@ -538,7 +621,7 @@ class EmergencyAlertManager(
         val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(R.mipmap.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
@@ -695,6 +778,29 @@ class EmergencyAlertManager(
     }
 
     /**
+     * Abre el marcador con el número como último recurso
+     */
+    private fun openDialerWithNumber(phoneNumber: String): Boolean {
+        return try {
+            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                data = Uri.parse("tel:$phoneNumber")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+
+            context.startActivity(dialIntent)
+            Log.i(TAG, "📱 Marcador abierto con número $phoneNumber")
+
+            // Mostrar notificación urgente para que el usuario complete la llamada
+            showUrgentCallNotification(phoneNumber)
+
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error abriendo marcador", e)
+            return false
+        }
+    }
+
+    /**
      * Método alternativo para realizar llamadas en Android 10+
      */
     private fun makeEmergencyCallAlternative(phoneNumber: String): Boolean {
@@ -724,7 +830,7 @@ class EmergencyAlertManager(
         val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("📞 Llamada de Emergencia")
             .setContentText("Llamando a $phoneNumber...")
-            .setSmallIcon(R.mipmap.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setAutoCancel(true)
@@ -741,7 +847,7 @@ class EmergencyAlertManager(
         val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("🚨 EMERGENCIA - Completar Llamada")
             .setContentText("Toca LLAMAR en el marcador para contactar a $phoneNumber")
-            .setSmallIcon(R.mipmap.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(false)
@@ -824,75 +930,9 @@ class EmergencyAlertManager(
         cancelTimerJob?.cancel()
         callTimeoutJob?.cancel()
         stopAlertSound()
+        unregisterPhoneStateListener()
         cancelPendingCalls()
-        apiService.cleanup()
         coroutineScope.cancel()
         notificationManager.cancelAll()
     }
-
-
-    /**
-     * Configura el monitoreo de resultados de la API
-     */
-    private fun setupApiMonitoring() {
-        coroutineScope.launch {
-            apiService.alertResults.collect { result ->
-                when (result) {
-                    is AlertSendResult.Success -> {
-                        Log.i(TAG, "Alerta enviada exitosamente a la API: ${result.response.alertId}")
-                    }
-                    is AlertSendResult.Error -> {
-                        Log.w(TAG, "Error enviando alerta a la API: ${result.message}")
-                    }
-                    is AlertSendResult.ValidationError -> {
-                        Log.e(TAG, "Error de validación enviando alerta a la API: ${result.errors}")
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Envía la alerta a la API
-     */
-    private suspend fun sendAlertToApi(alert: EmergencyAlert) {
-        try {
-            Log.d(TAG, "Enviando alerta a la API...")
-
-            val result = apiService.sendEmergencyAlert(
-                accidentEvent = alert.accidentEvent,
-                location = alert.location,
-                medicalProfile = alert.medicalInfo,
-                emergencyContacts = _emergencyContacts.value
-            )
-
-            when (result) {
-                is AlertSendResult.Success -> {
-                    Log.i(TAG, "Alerta enviada exitosamente a la API: ${result.response.alertId}")
-                }
-                is AlertSendResult.Error -> {
-                    Log.w(TAG, "Error enviando alerta a la API: ${result.message}")
-                }
-                is AlertSendResult.ValidationError -> {
-                    Log.e(TAG, "Error de validación: ${result.errors.joinToString(", ")}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Excepción enviando alerta a la API", e)
-        }
-    }
-
-    /**
-     * Configura la URL base de la API
-     */
-    fun setApiBaseUrl(url: String) {
-        apiService.setApiBaseUrl(url)
-        Log.i(TAG, "URL de API configurada: $url")
-    }
-
-    /**
-     * Obtiene estadísticas del servicio de API
-     */
-    fun getApiServiceStats() = apiService.getServiceStats()
->>>>>>> 893c843 (Implementacion de llamadas automaticas y coneccion con api websocket para recepción de alertas en tiempo real en sistema web)
 }
