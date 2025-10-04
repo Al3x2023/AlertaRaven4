@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.telephony.PhoneStateListener
+import android.telephony.PhoneNumberUtils
 import android.telephony.SmsManager
 import android.telephony.TelephonyManager
 import android.util.Log
@@ -46,6 +47,7 @@ class EmergencyAlertManager(
         private const val CANCEL_ACTION = "CANCEL_ALERT"
         private const val CONFIRM_ACTION = "CONFIRM_ALERT"
         private const val CALL_TIMEOUT_MS = 30000L // 30 segundos timeout por llamada
+        private const val MIN_ALERT_INTERVAL_MS = 5000L // Debounce para evitar duplicados rápidos
     }
 
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -77,6 +79,10 @@ class EmergencyAlertManager(
     private var isCalling = false
     private var currentCallNumber: String? = null
     private var callStartTime: Long = 0
+    private var lastTriggerTimestamp: Long = 0
+    // Estado detallado de llamada para evitar solapamientos
+    private var callHasConnected: Boolean = false
+    private var dialAttemptInProgress: Boolean = false
 
     init {
         createNotificationChannel()
@@ -89,10 +95,21 @@ class EmergencyAlertManager(
         Log.i(TAG, "=== INICIANDO TRIGGER EMERGENCY ALERT ===")
         Log.i(TAG, "Evento de accidente: ${accidentEvent.type}, confianza: ${accidentEvent.confidence}")
         Log.i(TAG, "Estado actual de alerta: ${_currentAlert.value?.status}")
-
-        if (_currentAlert.value?.status == AlertStatus.PENDING) {
-            Log.w(TAG, "Ya hay una alerta pendiente")
+        // Debounce para evitar alertas duplicadas en intervalo muy corto
+        val now = System.currentTimeMillis()
+        if (now - lastTriggerTimestamp < MIN_ALERT_INTERVAL_MS) {
+            Log.w(TAG, "Debounce: alerta ignorada, intervalo mínimo no cumplido")
             return
+        }
+        lastTriggerTimestamp = now
+
+        // Evitar reiniciar si hay una alerta pendiente; permitir nuevos triggers tras finalizar
+        when (_currentAlert.value?.status) {
+            AlertStatus.PENDING -> {
+                Log.w(TAG, "Ya hay una alerta pendiente")
+                return
+            }
+            else -> {}
         }
 
         val location = locationManager.getEmergencyLocation()
@@ -140,7 +157,11 @@ class EmergencyAlertManager(
 
             // Si llegamos aquí y la alerta sigue pendiente, enviar automáticamente
             if (_currentAlert.value?.status == AlertStatus.PENDING) {
-                confirmAlert()
+                // Lanzar confirmación en un nuevo coroutine para evitar cancelar
+                // el propio job del temporizador (evita JobCancellationException)
+                coroutineScope.launch {
+                    confirmAlert()
+                }
             }
         }
     }
@@ -253,6 +274,14 @@ class EmergencyAlertManager(
 
         // Mostrar notificación de confirmación
         showConfirmationNotification(currentAlert, success)
+
+        // Si no hay llamadas configuradas o la cola está vacía, resetear estado tras breve pausa
+        if (!_alertSettings.value.makeCall || pendingCalls.isEmpty()) {
+            coroutineScope.launch {
+                delay(3000)
+                resetAlertState()
+            }
+        }
     }
 
     /**
@@ -266,9 +295,9 @@ class EmergencyAlertManager(
         Log.d(TAG, "Contactos activos: ${contacts.size}")
         Log.d(TAG, "Configuración - SMS: ${settings.sendSMS}, Llamadas: ${settings.makeCall}")
 
+        // Nota: enviamos a la API aunque no haya contactos activos
         if (contacts.isEmpty()) {
-            Log.w(TAG, "❌ No hay contactos de emergencia configurados")
-            return false
+            Log.w(TAG, "⚠️ No hay contactos activos; se intentará envío solo a la API")
         }
 
         // Enviar alerta a la API primero
@@ -353,8 +382,9 @@ class EmergencyAlertManager(
             callSuccessCount = pendingCalls.size
         }
 
-        Log.i(TAG, "📊 Resumen - SMS enviados: $successCount de ${contacts.size}, Llamadas programadas: $callSuccessCount")
-        return successCount > 0 || callSuccessCount > 0
+        Log.i(TAG, "📊 Resumen - API: ${if (apiSuccess) "OK" else "FALLÓ"}, SMS enviados: $successCount de ${contacts.size}, Llamadas programadas: $callSuccessCount")
+        // Considerar éxito si la API se envió, o hubo al menos un SMS/llamada
+        return apiSuccess || successCount > 0 || callSuccessCount > 0
     }
 
     /**
@@ -366,6 +396,8 @@ class EmergencyAlertManager(
             isCalling = false
             currentCallNumber = null
             unregisterPhoneStateListener()
+            // Resetear estado para permitir nuevas detecciones
+            resetAlertState()
             return
         }
 
@@ -378,6 +410,9 @@ class EmergencyAlertManager(
         isCalling = true
         currentCallNumber = nextNumber
         callStartTime = System.currentTimeMillis()
+        // Marcar intento de marcación y limpiar estado previo
+        dialAttemptInProgress = true
+        callHasConnected = false
 
         Log.d(TAG, "Iniciando llamada a $nextNumber (Llamadas pendientes: ${pendingCalls.size})")
 
@@ -390,6 +425,8 @@ class EmergencyAlertManager(
             Log.e(TAG, "❌ Falló al iniciar llamada a $nextNumber, continuando con siguiente")
             isCalling = false
             currentCallNumber = null
+            dialAttemptInProgress = false
+            callHasConnected = false
             // Intentar siguiente llamada después de un breve delay
             coroutineScope.launch {
                 delay(2000)
@@ -425,12 +462,25 @@ class EmergencyAlertManager(
         isCalling = false
         currentCallNumber = null
         callTimeoutJob?.cancel()
+        dialAttemptInProgress = false
+        callHasConnected = false
 
         // Pequeño delay antes de la siguiente llamada
         coroutineScope.launch {
             delay(3000) // 3 segundos entre llamadas
             startNextCall()
         }
+    }
+
+    /**
+     * Resetea el estado de alerta para permitir nuevos triggers
+     */
+    private fun resetAlertState() {
+        Log.i(TAG, "Reiniciando estado de alerta para nuevas detecciones")
+        _currentAlert.value = null
+        cancelTimerJob?.cancel()
+        callTimeoutJob?.cancel()
+        // No tocamos lastTriggerTimestamp para mantener el debounce natural
     }
 
     /**
@@ -458,16 +508,26 @@ class EmergencyAlertManager(
                     TelephonyManager.CALL_STATE_IDLE -> {
                         Log.d(TAG, "Llamada terminada (IDLE)")
                         if (isCalling) {
-                            handleCallEnded()
+                            if (callHasConnected) {
+                                // Solo consideramos fin real si hubo conexión previa
+                                handleCallEnded()
+                            } else {
+                                // Ignorar IDLE inicial después de iniciar intento de marcación
+                                Log.d(TAG, "IDLE recibido sin conexión; esperando OFFHOOK o timeout")
+                            }
                         }
                     }
                     TelephonyManager.CALL_STATE_OFFHOOK -> {
                         Log.d(TAG, "Llamada en curso (OFFHOOK)")
-                        // Llamada activa, cancelar timeout
+                        // Llamada activa, cancelar timeout y marcar conexión
+                        callHasConnected = true
+                        dialAttemptInProgress = false
                         callTimeoutJob?.cancel()
                     }
                     TelephonyManager.CALL_STATE_RINGING -> {
                         Log.d(TAG, "Teléfono sonando (RINGING)")
+                        // Hay actividad, ya no estamos solo en intento de marcación
+                        dialAttemptInProgress = false
                     }
                 }
             }
@@ -562,22 +622,36 @@ class EmergencyAlertManager(
         }
 
         return try {
+            val normalized = normalizePhoneNumber(phoneNumber)
             val smsManager = SmsManager.getDefault()
 
             // Dividir mensaje si es muy largo
             val parts = smsManager.divideMessage(message)
 
             if (parts.size == 1) {
-                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+                smsManager.sendTextMessage(normalized, null, message, null, null)
             } else {
-                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+                smsManager.sendMultipartTextMessage(normalized, null, parts, null, null)
             }
 
-            Log.i(TAG, "SMS enviado a $phoneNumber")
+            Log.i(TAG, "SMS enviado a ${normalized}")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error enviando SMS a $phoneNumber", e)
             false
+        }
+    }
+
+    /**
+     * Normaliza números de teléfono a formato E.164 cuando es posible
+     */
+    private fun normalizePhoneNumber(raw: String): String {
+        return try {
+            val e164 = PhoneNumberUtils.formatNumberToE164(raw, java.util.Locale.getDefault().country)
+            e164 ?: PhoneNumberUtils.normalizeNumber(raw)
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo formatear número a E.164: $raw", e)
+            PhoneNumberUtils.normalizeNumber(raw)
         }
     }
 
@@ -635,18 +709,19 @@ class EmergencyAlertManager(
     private fun playAlertSound() {
         coroutineScope.launch(Dispatchers.Main) {
             try {
-                // Detener sonido anterior si existe
+                // Si ya está reproduciendo, no reiniciar
                 currentRingtone?.let { ringtone ->
                     if (ringtone.isPlaying) {
-                        ringtone.stop()
-                        Log.d(TAG, "Deteniendo sonido anterior")
+                        Log.d(TAG, "Ringtone ya reproduciéndose; evitando reinicio")
+                        return@launch
                     }
                 }
-                currentRingtone = null
 
                 // Crear nuevo ringtone
                 val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                currentRingtone = RingtoneManager.getRingtone(context, uri)
+                if (currentRingtone == null) {
+                    currentRingtone = RingtoneManager.getRingtone(context, uri)
+                }
 
                 currentRingtone?.let { ringtone ->
                     if (!ringtone.isPlaying) {
@@ -728,7 +803,8 @@ class EmergencyAlertManager(
      * Realiza una llamada automática de emergencia
      */
     private fun makeEmergencyCall(phoneNumber: String): Boolean {
-        Log.d(TAG, "Intentando realizar llamada automática a $phoneNumber")
+        val normalized = normalizePhoneNumber(phoneNumber)
+        Log.d(TAG, "Intentando realizar llamada automática a ${normalized}")
 
         if (!hasCallPermission()) {
             Log.e(TAG, "Sin permisos para realizar llamadas - CALL_PHONE requerido")
@@ -738,7 +814,7 @@ class EmergencyAlertManager(
         return try {
             // Crear intent para llamada de emergencia
             val callIntent = Intent(Intent.ACTION_CALL).apply {
-                data = Uri.parse("tel:$phoneNumber")
+                data = Uri.parse("tel:$normalized")
                 // Usar FLAG_ACTIVITY_NEW_TASK para servicios en segundo plano
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 // Agregar categoría de emergencia para mayor prioridad
@@ -756,10 +832,10 @@ class EmergencyAlertManager(
 
                 // Iniciar la llamada
                 context.startActivity(callIntent)
-                Log.i(TAG, "✅ Llamada automática iniciada exitosamente a $phoneNumber")
+                Log.i(TAG, "✅ Llamada automática iniciada exitosamente a ${normalized}")
 
                 // Crear notificación de llamada para mayor visibilidad
-                showCallNotification(phoneNumber)
+                showCallNotification(normalized)
 
                 return true
             } else {
@@ -781,18 +857,19 @@ class EmergencyAlertManager(
      * Abre el marcador con el número como último recurso
      */
     private fun openDialerWithNumber(phoneNumber: String): Boolean {
+        val normalized = normalizePhoneNumber(phoneNumber)
         return try {
             val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                data = Uri.parse("tel:$phoneNumber")
+                data = Uri.parse("tel:$normalized")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
 
             context.startActivity(dialIntent)
-            Log.i(TAG, "📱 Marcador abierto con número $phoneNumber")
+            Log.i(TAG, "📱 Marcador abierto con número ${normalized}")
 
             // Mostrar notificación urgente para que el usuario complete la llamada
-            showUrgentCallNotification(phoneNumber)
-
+            showUrgentCallNotification(normalized)
+            
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Error abriendo marcador", e)
@@ -804,21 +881,22 @@ class EmergencyAlertManager(
      * Método alternativo para realizar llamadas en Android 10+
      */
     private fun makeEmergencyCallAlternative(phoneNumber: String): Boolean {
+        val normalized = normalizePhoneNumber(phoneNumber)
         return try {
             // Crear intent con ACTION_DIAL como fallback
             val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                data = Uri.parse("tel:$phoneNumber")
+                data = Uri.parse("tel:$normalized")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
 
             context.startActivity(dialIntent)
-            Log.i(TAG, "Marcador abierto para llamada de emergencia a $phoneNumber")
+            Log.i(TAG, "Marcador abierto para llamada de emergencia a ${normalized}")
 
             // Mostrar notificación urgente para que el usuario complete la llamada
-            showUrgentCallNotification(phoneNumber)
+            showUrgentCallNotification(normalized)
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error con método alternativo de llamada a $phoneNumber", e)
+            Log.e(TAG, "Error con método alternativo de llamada a ${normalized}", e)
             return false
         }
     }

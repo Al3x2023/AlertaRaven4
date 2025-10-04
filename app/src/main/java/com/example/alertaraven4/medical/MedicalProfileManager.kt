@@ -27,6 +27,45 @@ class MedicalProfileManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val gson = Gson()
     
+    // Listener para detectar cambios externos en SharedPreferences y recargar flujos
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPrefs, key ->
+        try {
+            when (key) {
+                KEY_MEDICAL_PROFILE -> {
+                    // Recargar perfil médico desde almacenamiento
+                    val json = sharedPrefs.getString(KEY_MEDICAL_PROFILE, null)
+                    if (json != null) {
+                        val profile = gson.fromJson(json, MedicalProfile::class.java)
+                        _medicalProfile.value = profile
+                        updateProfileCompleteness()
+                        Log.i(TAG, "Perfil médico actualizado desde SharedPreferences")
+                    } else {
+                        _medicalProfile.value = null
+                        updateProfileCompleteness()
+                        Log.i(TAG, "Perfil médico limpiado desde SharedPreferences")
+                    }
+                }
+                KEY_EMERGENCY_CONTACTS -> {
+                    // Recargar contactos de emergencia desde almacenamiento
+                    val json = sharedPrefs.getString(KEY_EMERGENCY_CONTACTS, null)
+                    if (json != null) {
+                        val type = object : com.google.gson.reflect.TypeToken<List<com.example.alertaraven4.data.EmergencyContact>>() {}.type
+                        val contacts = gson.fromJson<List<com.example.alertaraven4.data.EmergencyContact>>(json, type)
+                        _emergencyContacts.value = contacts ?: emptyList()
+                        updateProfileCompleteness()
+                        Log.i(TAG, "Contactos de emergencia actualizados desde SharedPreferences: ${contacts?.size ?: 0} contactos")
+                    } else {
+                        _emergencyContacts.value = emptyList()
+                        updateProfileCompleteness()
+                        Log.i(TAG, "Contactos de emergencia limpiados desde SharedPreferences")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error procesando cambio en SharedPreferences para clave: $key", e)
+        }
+    }
+    
     private val _medicalProfile = MutableStateFlow<MedicalProfile?>(null)
     val medicalProfile: StateFlow<MedicalProfile?> = _medicalProfile.asStateFlow()
     
@@ -40,6 +79,8 @@ class MedicalProfileManager(private val context: Context) {
         loadMedicalProfile()
         loadEmergencyContacts()
         updateProfileCompleteness()
+        // Registrar listener para sincronizar cambios realizados por otras instancias
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
     }
     
     /**
@@ -382,6 +423,17 @@ class MedicalProfileManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error eliminando datos médicos", e)
             false
+        }
+    }
+
+    /**
+     * Debe llamarse cuando ya no se necesite este manager para evitar fugas.
+     */
+    fun unregisterListener() {
+        try {
+            prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        } catch (_: Exception) {
+            // No-op
         }
     }
     

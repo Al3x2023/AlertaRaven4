@@ -404,6 +404,7 @@ class MainActivity : ComponentActivity() {
             add(Manifest.permission.ACCESS_COARSE_LOCATION)
             add(Manifest.permission.SEND_SMS)
             add(Manifest.permission.CALL_PHONE)
+            add(Manifest.permission.READ_PHONE_STATE)
             add(Manifest.permission.VIBRATE)
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

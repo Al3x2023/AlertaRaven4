@@ -30,7 +30,8 @@ class PermissionManager(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.SEND_SMS,
-            Manifest.permission.CALL_PHONE
+            Manifest.permission.CALL_PHONE,
+            Manifest.permission.READ_PHONE_STATE
         )
         
         // Permisos adicionales según la versión de Android
@@ -242,6 +243,9 @@ class PermissionManager(
             
             Manifest.permission.CALL_PHONE -> 
                 "Realizar llamadas: Permite llamar automáticamente a servicios de emergencia si es necesario."
+
+            Manifest.permission.READ_PHONE_STATE ->
+                "Estado del teléfono: Permite monitorear las llamadas para avanzar correctamente en la secuencia sin tiempos de espera artificiales."
             
             Manifest.permission.POST_NOTIFICATIONS -> 
                 "Notificaciones: Necesario para mostrarte alertas importantes y el estado de la detección de accidentes."
